@@ -9,7 +9,7 @@ export const startWss = (port: number) => {
     ws.on('message', (message: string) => {
       console.log(`Received message: ${message}`);
       wss.clients.forEach((client) => {
-        client.send(`Server received your message: ${message}`);
+        client.send(message);
       });
     });
 
