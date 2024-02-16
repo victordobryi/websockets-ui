@@ -1,4 +1,4 @@
-enum RequestTypes {
+export enum RequestTypes {
   REG = 'reg',
   UPDATE_WINNERS = 'update_winners',
   CREATE_ROOM = 'create_room',
@@ -13,27 +13,37 @@ enum RequestTypes {
   FINISH = 'finish',
 }
 
+export interface GameRequest {
+  type: RequestTypes;
+  data: string;
+  id: number;
+}
+
+export interface PlayerRegData {
+  name: string;
+  password: string;
+}
+
 export interface RegRequest {
   type: RequestTypes.REG;
-  data: {
-    name: string;
-    password: string;
-  };
+  data: PlayerRegData;
   id: number;
+}
+
+interface RegResponseData {
+  name: string;
+  index: number;
+  error: boolean;
+  errorText: string;
 }
 
 export interface RegResponse {
   type: RequestTypes.REG;
-  data: {
-    name: string;
-    index: number;
-    error: boolean;
-    errorText: string;
-  };
+  data: RegResponseData;
   id: number;
 }
 
-interface Winners {
+export interface Winners {
   name: string;
   wins: number;
 }
@@ -67,12 +77,12 @@ export interface CreateGameResponse {
   id: number;
 }
 
-interface RoomUser {
+export interface RoomUser {
   name: string;
   index: number;
 }
 
-interface UsersRoom {
+export interface UsersRoom {
   roomId: number;
   roomUsers: RoomUser[];
 }
@@ -99,7 +109,7 @@ interface AddShipData {
   indexPlayer: number;
 }
 
-export interface AddShipRequest {
+export interface AddShipsRequest {
   type: RequestTypes.ADD_SHIPS;
   data: AddShipData;
   id: number;
@@ -153,7 +163,7 @@ export interface RandomAttackRequest {
   id: number;
 }
 
-export interface TurnRequest {
+export interface TurnResponse {
   type: RequestTypes.TURN;
   data: {
     currentPlayer: number;
@@ -161,7 +171,7 @@ export interface TurnRequest {
   id: number;
 }
 
-export interface FinishGameRequest {
+export interface FinishGameResponse {
   type: RequestTypes.FINISH;
   data: {
     winPlayer: number;

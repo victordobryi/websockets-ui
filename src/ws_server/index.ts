@@ -1,4 +1,5 @@
 import WebSocket, { WebSocketServer } from 'ws';
+import { gameRouter } from '../game/game.router';
 
 export const startWss = (port: number) => {
   const wss = new WebSocketServer({ port });
@@ -6,11 +7,9 @@ export const startWss = (port: number) => {
   wss.on('connection', (ws: WebSocket) => {
     console.log('New client connected');
 
-    ws.on('message', (message: string) => {
+    ws.on('message', (message) => {
       console.log(`Received message: ${message}`);
-      wss.clients.forEach((client) => {
-        client.send(message);
-      });
+      gameRouter(message, ws);
     });
 
     ws.on('close', () => {
