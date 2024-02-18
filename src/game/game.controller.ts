@@ -30,17 +30,20 @@ import {
   Winners,
 } from './game.interface';
 import { GameService } from './game.service';
+import { InMemoryDB } from '../data/IMDB';
+import { sockets } from '../ws_server';
+
+let globalPlayer = {} as Player;
+let globalRoom = {} as Room;
 
 export class GameController {
   private gameService: GameService;
   private ws: WebSocket;
-  player: Player;
-  ships: Ship[];
-  constructor(ws: WebSocket) {
-    this.gameService = new GameService();
+  db: InMemoryDB;
+  constructor(ws: WebSocket, db: InMemoryDB) {
+    this.gameService = new GameService(db);
     this.ws = ws;
-    this.player = {} as Player;
-    this.ships = [];
+    this.db = db;
   }
 
   async auth(data: string) {
@@ -51,7 +54,7 @@ export class GameController {
         throw new BadRequestError('Player with this name already exists');
       } else {
         const player = new Player(name, password);
-        this.player = player;
+        globalPlayer = player;
         const resData: RegResponseData = {
           name: player.name,
           index: player.id,
@@ -64,6 +67,8 @@ export class GameController {
           id: 0,
         };
         this.ws.send(JSON.stringify(res));
+        await this.gameService.auth({ ...player });
+        await this.updateRoom();
       }
     } catch (error) {
       const resData: RegResponseData = {
@@ -79,7 +84,6 @@ export class GameController {
       };
       this.ws.send(JSON.stringify(res));
     }
-    await this.updateRoom();
   }
   async updateRoom() {
     try {
@@ -91,10 +95,11 @@ export class GameController {
         id: 0,
       };
       this.ws.send(JSON.stringify(res));
+      sockets.map((socket) => socket.send(JSON.stringify(res)));
+      await this.updateWinners();
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
-    this.updateWinners();
   }
   async updateWinners() {
     const players = await this.gameService.updateWinners();
@@ -104,21 +109,24 @@ export class GameController {
       data: JSON.stringify(winnersDto),
       id: 0,
     };
-    this.ws.send(JSON.stringify(res));
+    sockets.map((socket) => socket.send(JSON.stringify(res)));
   }
   async createRoom() {
-    const room = new Room();
+    const room = new Room({ ...globalPlayer });
     await this.gameService.createRoom(room);
     await this.updateRoom();
   }
   async addUserToRoom(data: string) {
     const { indexRoom }: AddUserToRoomReqData = JSON.parse(data);
     const room = await this.gameService.getRoomById(String(indexRoom));
+    if (!room) throw new NotFoundError('Room not found');
+    room.addUser({ ...globalPlayer });
+    globalRoom = room;
     this.ws.send(
       JSON.stringify({
         type: RequestTypes.ADD_USER_TO_ROOM,
         data: JSON.stringify({
-          indexRoom: room?.index,
+          indexRoom: room?.roomId,
         }),
         id: 0,
       })
@@ -127,21 +135,25 @@ export class GameController {
     await this.createGame();
   }
   async createGame() {
-    const game = new Game(this.player.id);
+    const { roomUsers } = globalRoom;
+    const game = new Game(roomUsers[0], roomUsers[1]);
     const resData: CreateGameResData = {
       idGame: game.idGame,
-      idPlayer: this.player.id,
+      idPlayer: globalPlayer.id,
     };
     const res: CreateGameResponse = {
       type: RequestTypes.CREATE_GAME,
       data: JSON.stringify(resData),
       id: 0,
     };
-    this.ws.send(JSON.stringify(res));
+    this.gameService.createGame({ ...game });
+    sockets.map((socket) => socket.send(JSON.stringify(res)));
   }
   async addShips(data: string) {
     const { gameId, indexPlayer, ships }: AddShipData = JSON.parse(data);
-    this.ships = ships;
+    const player = await this.gameService.getPlayerById(String(indexPlayer));
+    if (!player) throw new NotFoundError('Player not found');
+    player.ships = ships;
     try {
       const game = await this.gameService.getGameById(String(gameId));
       if (!game) throw new NotFoundError('Game not found');
@@ -156,21 +168,22 @@ export class GameController {
           id: 0,
         })
       );
+      await this.startGame();
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
   }
   async startGame() {
     const resData: StartGameData = {
-      ships: this.ships,
-      currentPlayerIndex: this.player.id,
+      ships: globalPlayer.ships,
+      currentPlayerIndex: globalPlayer.id,
     };
     const res: StartGameResponse = {
       type: RequestTypes.START_GAME,
       data: JSON.stringify(resData),
       id: 0,
     };
-    this.ws.send(JSON.stringify(res));
+    sockets.map((socket) => socket.send(JSON.stringify(res)));
   }
   async attack(data: string) {
     const { gameId, y, x, indexPlayer }: AttackData = JSON.parse(data);
@@ -188,9 +201,7 @@ export class GameController {
       data: JSON.stringify(resData),
       id: 0,
     };
-    // TODO:
-    // 1) attack status logic
-    this.ws.send(JSON.stringify(res));
+    sockets.map((socket) => socket.send(JSON.stringify(res)));
   }
   async randomAttack(data: string) {
     const { indexPlayer, gameId }: RandomAttackData = JSON.parse(data);
@@ -205,24 +216,24 @@ export class GameController {
   }
   async turn() {
     const resData: TurnResponseData = {
-      currentPlayer: this.player.id,
+      currentPlayer: globalPlayer.id,
     };
     const res: TurnResponse = {
       type: RequestTypes.TURN,
       data: JSON.stringify(resData),
       id: 0,
     };
-    this.ws.send(JSON.stringify(res));
+    sockets.map((socket) => socket.send(JSON.stringify(res)));
   }
   async finishGame() {
     const resData: FinishGameData = {
-      winPlayer: this.player.id,
+      winPlayer: globalPlayer.id,
     };
     const res: FinishGameResponse = {
       type: RequestTypes.FINISH,
       data: JSON.stringify(resData),
       id: 0,
     };
-    this.ws.send(JSON.stringify(res));
+    sockets.map((socket) => socket.send(JSON.stringify(res)));
   }
 }

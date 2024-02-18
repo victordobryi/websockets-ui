@@ -1,12 +1,13 @@
 import { RawData, WebSocket } from 'ws';
 import { GameController } from './game.controller';
 import { GameRequest, RequestTypes } from './game.interface';
+import { InMemoryDB } from '../data/IMDB';
 
-export const gameRouter = (message: RawData, ws: WebSocket) => {
+export const gameRouter = (message: RawData, ws: WebSocket, db: InMemoryDB) => {
   try {
     const requestData: GameRequest = JSON.parse(message.toString());
     const { type, data } = requestData;
-    const gameController = new GameController(ws);
+    const gameController = new GameController(ws, db);
 
     switch (type) {
       case RequestTypes.REG:

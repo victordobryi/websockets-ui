@@ -1,41 +1,54 @@
 import { InMemoryDB } from '../data/IMDB';
-import { Player } from '../player/player.interface';
+import { Player } from '../player/player';
 import { Room } from '../room/room';
 import { getErrorMessage } from '../utils/getErrorMessage';
 import { Game } from './game';
+import { UsersRoom } from './game.interface';
 
 export class GameService {
   private db: InMemoryDB;
-  constructor() {
-    this.db = new InMemoryDB();
+  constructor(db: InMemoryDB) {
+    this.db = db;
   }
 
   async auth(data: Player) {
-    this.db.save(data);
+    this.db.save({ type: 'player', data, id: data.id });
   }
 
-  async updateWinners() {
-    return this.db.getAll() as Player[];
+  async getAll() {
+    return this.db.getAll();
+  }
+
+  async updateWinners(): Promise<Player[]> {
+    try {
+      const allPlayers = await this.db.getAll();
+      return allPlayers
+        .filter((data: any) => data.type === 'player' && data.wins >= 1)
+        .map((data: any) => data.data) as Player[];
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
   }
 
   async getPlayerById(id: string): Promise<Player | undefined> {
     try {
-      return this.db.get(id) as Player;
-    } catch (error) {
-      throw new Error(getErrorMessage(error));
-    }
-  }
-  async getPlayerByName(name: string): Promise<Player | undefined> {
-    try {
-      return this.db.get(name) as Player;
+      const entry = await this.db.get(id);
+      if (entry && entry.type === 'player') {
+        return entry.data;
+      }
+      return undefined;
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
   }
 
-  async getRoomById(id: string): Promise<Player | undefined> {
+  async getPlayerByName(name: string): Promise<Player | undefined> {
     try {
-      return this.db.get(id) as Player;
+      const allPlayers = await this.db.getAll();
+      const playerEntry = allPlayers.find(
+        (data: any) => data.type === 'player' && data.data.name === name
+      );
+      return playerEntry?.data;
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
@@ -43,7 +56,23 @@ export class GameService {
 
   async getGameById(id: string): Promise<Game | undefined> {
     try {
-      return this.db.get(id) as Game;
+      const entry = await this.db.get(id);
+      if (entry && entry.type === 'game') {
+        return entry.game;
+      }
+      return undefined;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  async getRoomById(id: string): Promise<Room | undefined> {
+    try {
+      const entry = await this.db.get(id);
+      if (entry && entry.type === 'room') {
+        return entry.room;
+      }
+      return undefined;
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
@@ -51,13 +80,21 @@ export class GameService {
 
   async getAllRooms(): Promise<Room[]> {
     try {
-      return this.db.getAll() as Room[];
+      const allData = await this.db.getAll();
+      const rooms = allData
+        .filter((data: any) => data.type === 'room')
+        .map((data: any) => data.room) as Room[];
+      return rooms;
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
   }
 
   async createRoom(room: Room) {
-    this.db.save(room);
+    return this.db.save({ type: 'room', room, id: room.roomId });
+  }
+
+  async createGame(game: Game) {
+    return this.db.save({ type: 'game', game, id: game.idGame });
   }
 }

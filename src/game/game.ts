@@ -1,11 +1,13 @@
+import { Player } from '../player/player';
 import { getUniqueId } from '../utils/getUniqueId';
 
 export class Game {
   idGame: number;
-  player1Id?: number;
-  player2Id?: number;
-  constructor(player1Id?: number) {
+  player1: Player;
+  player2: Player;
+  constructor(player1: Player, player2: Player) {
     this.idGame = getUniqueId();
-    this.player1Id = player1Id;
+    this.player1 = player1;
+    this.player2 = player2;
   }
 }

@@ -99,11 +99,13 @@ export interface UpdateRoomResponse {
   id: number;
 }
 
+export interface Position {
+  x: number;
+  y: number;
+}
+
 export interface Ship {
-  position: {
-    x: number;
-    y: number;
-  };
+  position: Position;
   direction: boolean;
   length: number;
   type: 'small' | 'medium' | 'large' | 'huge';
@@ -146,10 +148,7 @@ export interface AttackRequest {
 }
 
 export interface AttackResponseData {
-  position: {
-    x: number;
-    y: number;
-  };
+  position: Position;
   currentPlayer: number;
   status: 'miss' | 'killed' | 'shot';
 }

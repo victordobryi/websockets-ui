@@ -1,11 +1,17 @@
 import { RoomUser } from '../game/game.interface';
+import { Player } from '../player/player';
 import { getUniqueId } from '../utils/getUniqueId';
 
 export class Room {
   roomId: number;
-  roomUsers: RoomUser[];
-  constructor() {
+  roomUsers: Player[];
+  constructor(user1: Player) {
     this.roomId = getUniqueId();
-    this.roomUsers = [];
+    this.roomUsers = [user1];
+  }
+
+  addUser(user: Player) {
+    if (this.roomUsers.length >= 2) throw new Error('Room is Full');
+    this.roomUsers.push(user);
   }
 }

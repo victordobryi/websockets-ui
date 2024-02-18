@@ -1,8 +1,3 @@
-interface Transaction {
-  id: string;
-  changes: { [key: string]: any };
-}
-
 export class InMemoryDB {
   private store: { [key: string]: any };
 
