@@ -79,7 +79,7 @@ export interface CreateGameResData {
 
 export interface CreateGameResponse {
   type: RequestTypes.CREATE_GAME;
-  data: CreateGameResData;
+  data: string;
   id: number;
 }
 
@@ -128,7 +128,7 @@ export interface StartGameData {
 
 export interface StartGameResponse {
   type: RequestTypes.START_GAME;
-  data: StartGameData;
+  data: string;
   id: number;
 }
 
