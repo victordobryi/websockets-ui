@@ -17,18 +17,18 @@ export const gameRouter = (message: RawData, ws: WebSocket) => {
         return gameController.createRoom();
       case RequestTypes.ADD_USER_TO_ROOM:
         return gameController.addUserToRoom(data);
-      // case RequestTypes.CREATE_GAME:
-      //   return gameController.createGame(requestData.data.playerId);
+      case RequestTypes.CREATE_GAME:
+        return gameController.createGame();
       case RequestTypes.UPDATE_ROOM:
         return gameController.updateRoom();
-      // case RequestTypes.ADD_SHIPS:
-      //   return gameController.addShips(requestData);
-      // case RequestTypes.START_GAME:
-      //   return gameController.startGame();
-      // case RequestTypes.ATTACK:
-      //   return gameController.attack(requestData);
-      // case RequestTypes.RANDOM_ATTACK:
-      //   return gameController.randomAttack(requestData);
+      case RequestTypes.ADD_SHIPS:
+        return gameController.addShips(data);
+      case RequestTypes.START_GAME:
+        return gameController.startGame();
+      case RequestTypes.ATTACK:
+        return gameController.attack(data);
+      case RequestTypes.RANDOM_ATTACK:
+        return gameController.randomAttack(data);
       case RequestTypes.TURN:
         return gameController.turn();
       case RequestTypes.FINISH:

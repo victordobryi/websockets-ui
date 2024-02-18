@@ -1,3 +1,5 @@
+import { Room } from '../room/room';
+
 export enum RequestTypes {
   REG = 'reg',
   UPDATE_WINNERS = 'update_winners',
@@ -30,7 +32,7 @@ export interface RegRequest {
   id: number;
 }
 
-interface RegResponseData {
+export interface RegResponseData {
   name: string;
   index: number;
   error: boolean;
@@ -39,7 +41,7 @@ interface RegResponseData {
 
 export interface RegResponse {
   type: RequestTypes.REG;
-  data: RegResponseData;
+  data: string;
   id: number;
 }
 
@@ -50,7 +52,7 @@ export interface Winners {
 
 export interface UpdateWinnersResponse {
   type: RequestTypes.UPDATE_WINNERS;
-  data: Winners[];
+  data: string;
   id: number;
 }
 
@@ -60,20 +62,24 @@ export interface CreateRoomRequest {
   id: number;
 }
 
+export interface AddUserToRoomReqData {
+  indexRoom: number;
+}
+
 export interface AddUserToRoomRequest {
   type: RequestTypes.ADD_USER_TO_ROOM;
-  data: {
-    indexRoom: number;
-  };
+  data: AddUserToRoomReqData;
   id: number;
+}
+
+export interface CreateGameResData {
+  idGame: number;
+  idPlayer: number;
 }
 
 export interface CreateGameResponse {
   type: RequestTypes.CREATE_GAME;
-  data: {
-    idGame: number;
-    idPlayer: number;
-  };
+  data: CreateGameResData;
   id: number;
 }
 
@@ -89,11 +95,11 @@ export interface UsersRoom {
 
 export interface UpdateRoomResponse {
   type: RequestTypes.UPDATE_ROOM;
-  data: UsersRoom[];
+  data: string;
   id: number;
 }
 
-interface Ship {
+export interface Ship {
   position: {
     x: number;
     y: number;
@@ -103,7 +109,7 @@ interface Ship {
   type: 'small' | 'medium' | 'large' | 'huge';
 }
 
-interface AddShipData {
+export interface AddShipData {
   gameId: number;
   ships: Ship[];
   indexPlayer: number;
@@ -115,7 +121,7 @@ export interface AddShipsRequest {
   id: number;
 }
 
-interface StartGameData {
+export interface StartGameData {
   ships: Ship[];
   currentPlayerIndex: number;
 }
@@ -126,7 +132,7 @@ export interface StartGameResponse {
   id: number;
 }
 
-interface AttackData {
+export interface AttackData {
   gameId: number;
   x: number;
   y: number;
@@ -139,7 +145,7 @@ export interface AttackRequest {
   id: number;
 }
 
-interface AttackResponseData {
+export interface AttackResponseData {
   position: {
     x: number;
     y: number;
@@ -150,31 +156,37 @@ interface AttackResponseData {
 
 export interface AttackResponse {
   type: RequestTypes.ATTACK;
-  data: AttackResponseData;
+  data: string;
   id: number;
+}
+
+export interface RandomAttackData {
+  gameId: number;
+  indexPlayer: number;
 }
 
 export interface RandomAttackRequest {
   type: RequestTypes.RANDOM_ATTACK;
-  data: {
-    gameId: number;
-    indexPlayer: number;
-  };
+  data: RandomAttackData;
   id: number;
+}
+
+export interface TurnResponseData {
+  currentPlayer: number;
 }
 
 export interface TurnResponse {
   type: RequestTypes.TURN;
-  data: {
-    currentPlayer: number;
-  };
+  data: string;
   id: number;
+}
+
+export interface FinishGameData {
+  winPlayer: number;
 }
 
 export interface FinishGameResponse {
   type: RequestTypes.FINISH;
-  data: {
-    winPlayer: number;
-  };
+  data: string;
   id: number;
 }
