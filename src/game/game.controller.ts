@@ -1,5 +1,3 @@
-import { WebSocket } from 'ws';
-import { Player } from '../player/player';
 import { Room } from '../room/room';
 import { BadRequestError, NotFoundError } from '../utils/customErrors';
 import { getErrorMessage } from '../utils/getErrorMessage';
@@ -20,7 +18,7 @@ import {
   RegResponse,
   RegResponseData,
   RequestTypes,
-  Ship,
+  SoketClient,
   StartGameData,
   StartGameResponse,
   TurnResponse,
@@ -30,31 +28,25 @@ import {
   Winners,
 } from './game.interface';
 import { GameService } from './game.service';
-import { InMemoryDB } from '../data/IMDB';
 import { sockets } from '../ws_server';
-
-let globalPlayer = {} as Player;
-let globalRoom = {} as Room;
+import { Player } from '../player/player';
 
 export class GameController {
   private gameService: GameService;
-  private ws: WebSocket;
-  db: InMemoryDB;
-  constructor(ws: WebSocket, db: InMemoryDB) {
-    this.gameService = new GameService(db);
+  private ws: SoketClient;
+  constructor(ws: SoketClient) {
+    this.gameService = new GameService();
     this.ws = ws;
-    this.db = db;
   }
 
-  async auth(data: string) {
+  auth = async (data: string) => {
     const { name, password }: PlayerRegData = JSON.parse(data);
     try {
       const player = await this.gameService.getPlayerByName(name);
       if (player) {
         throw new BadRequestError('Player with this name already exists');
       } else {
-        const player = new Player(name, password);
-        globalPlayer = player;
+        const player = new Player(name, password, this.ws.id);
         const resData: RegResponseData = {
           name: player.name,
           index: player.id,
@@ -67,7 +59,7 @@ export class GameController {
           id: 0,
         };
         this.ws.send(JSON.stringify(res));
-        await this.gameService.auth({ ...player });
+        await this.gameService.auth(player);
         await this.updateRoom();
       }
     } catch (error) {
@@ -84,8 +76,8 @@ export class GameController {
       };
       this.ws.send(JSON.stringify(res));
     }
-  }
-  async updateRoom() {
+  };
+  updateRoom = async (isForAll: boolean = false) => {
     try {
       const rooms = await this.gameService.getAllRooms();
       const availableRooms = rooms.filter((room) => room.roomUsers.length < 2);
@@ -94,14 +86,13 @@ export class GameController {
         data: JSON.stringify(availableRooms),
         id: 0,
       };
-      this.ws.send(JSON.stringify(res));
       sockets.map((socket) => socket.send(JSON.stringify(res)));
       await this.updateWinners();
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
-  }
-  async updateWinners() {
+  };
+  updateWinners = async () => {
     const players = await this.gameService.updateWinners();
     const winnersDto: Winners[] = getWinnersDto(players);
     const res: UpdateWinnersResponse = {
@@ -110,18 +101,23 @@ export class GameController {
       id: 0,
     };
     sockets.map((socket) => socket.send(JSON.stringify(res)));
-  }
-  async createRoom() {
-    const room = new Room({ ...globalPlayer });
+  };
+
+  createRoom = async () => {
+    const player = await this.gameService.getPlayerById(String(this.ws.id));
+    if (!player) throw new NotFoundError('Player not found');
+    const room = new Room(player);
     await this.gameService.createRoom(room);
     await this.updateRoom();
-  }
-  async addUserToRoom(data: string) {
+  };
+
+  addUserToRoom = async (data: string) => {
     const { indexRoom }: AddUserToRoomReqData = JSON.parse(data);
     const room = await this.gameService.getRoomById(String(indexRoom));
     if (!room) throw new NotFoundError('Room not found');
-    room.addUser({ ...globalPlayer });
-    globalRoom = room;
+    const player = await this.gameService.getPlayerById(String(this.ws.id));
+    if (!player) throw new NotFoundError('Player not found');
+    room.addUser(player);
     this.ws.send(
       JSON.stringify({
         type: RequestTypes.ADD_USER_TO_ROOM,
@@ -132,51 +128,45 @@ export class GameController {
       })
     );
     await this.updateRoom();
-    await this.createGame();
-  }
-  async createGame() {
-    const { roomUsers } = globalRoom;
+    await this.createGame(room);
+  };
+
+  createGame = async (room: Room) => {
+    const { roomUsers } = room;
     const game = new Game(roomUsers[0], roomUsers[1]);
+    const player = await this.gameService.getPlayerById(String(this.ws.id));
+    if (!player) throw new NotFoundError('Player not found');
     const resData: CreateGameResData = {
       idGame: game.idGame,
-      idPlayer: globalPlayer.id,
+      idPlayer: roomUsers[0].id,
     };
     const res: CreateGameResponse = {
       type: RequestTypes.CREATE_GAME,
       data: JSON.stringify(resData),
       id: 0,
     };
-    this.gameService.createGame({ ...game });
+    this.gameService.createGame(game);
     sockets.map((socket) => socket.send(JSON.stringify(res)));
-  }
-  async addShips(data: string) {
+  };
+  addShips = async (data: string) => {
     const { gameId, indexPlayer, ships }: AddShipData = JSON.parse(data);
-    const player = await this.gameService.getPlayerById(String(indexPlayer));
+    const player = await this.gameService.getPlayerById(String(this.ws.id));
     if (!player) throw new NotFoundError('Player not found');
-    player.ships = ships;
+    player.placeShips(ships);
     try {
       const game = await this.gameService.getGameById(String(gameId));
       if (!game) throw new NotFoundError('Game not found');
-      this.ws.send(
-        JSON.stringify({
-          type: RequestTypes.ADD_SHIPS,
-          data: JSON.stringify({
-            gameId: game.idGame,
-            ships,
-            indexPlayer,
-          }),
-          id: 0,
-        })
-      );
-      await this.startGame();
+      game.isGameStarted() ? this.startGame() : null;
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
-  }
-  async startGame() {
+  };
+  startGame = async () => {
+    const player = await this.gameService.getPlayerById(String(this.ws.id));
+    if (!player) throw new NotFoundError('Player not found');
     const resData: StartGameData = {
-      ships: globalPlayer.ships,
-      currentPlayerIndex: globalPlayer.id,
+      ships: player.ships,
+      currentPlayerIndex: player.id,
     };
     const res: StartGameResponse = {
       type: RequestTypes.START_GAME,
@@ -184,17 +174,62 @@ export class GameController {
       id: 0,
     };
     sockets.map((socket) => socket.send(JSON.stringify(res)));
-  }
-  async attack(data: string) {
+    await this.turn();
+  };
+  attack = async (data: string) => {
     const { gameId, y, x, indexPlayer }: AttackData = JSON.parse(data);
     const game = await this.gameService.getGameById(String(gameId));
+    if (!game) throw new NotFoundError('Game not found');
+    if (game.turnPlayer.id !== indexPlayer) {
+      throw new BadRequestError('It is not your turn');
+    }
+    const attackResult = game.attack(x, y);
+    let status: 'shot' | 'miss' | 'killed' = 'miss';
+    if (attackResult === 'shot') {
+      status = 'shot';
+    } else if (attackResult === 'killed') {
+      status = 'killed';
+    }
     const resData: AttackResponseData = {
       position: {
         x,
         y,
       },
       currentPlayer: indexPlayer,
-      status: 'miss',
+      status,
+    };
+    const res: AttackResponse = {
+      type: RequestTypes.ATTACK,
+      data: JSON.stringify(resData),
+      id: 0,
+    };
+    this.turn();
+    sockets.map((socket) => socket.send(JSON.stringify(res)));
+  };
+  randomAttack = async (data: string) => {
+    const { indexPlayer, gameId }: RandomAttackData = JSON.parse(data);
+    const game = await this.gameService.getGameById(String(gameId));
+    const randomX = Math.floor(Math.random() * 10);
+    const randomY = Math.floor(Math.random() * 10);
+    if (!game) throw new NotFoundError('Game not found');
+    if (game.turnPlayer.id !== indexPlayer) {
+      throw new BadRequestError('It is not your turn');
+    }
+    const attackResult = game.attack(randomX, randomY);
+    let status: 'shot' | 'miss' | 'killed' = 'miss';
+    if (attackResult === 'shot') {
+      status = 'shot';
+    } else if (attackResult === 'killed') {
+      status = 'killed';
+    }
+
+    const resData: AttackResponseData = {
+      position: {
+        x: randomX,
+        y: randomY,
+      },
+      currentPlayer: indexPlayer,
+      status,
     };
     const res: AttackResponse = {
       type: RequestTypes.ATTACK,
@@ -202,21 +237,12 @@ export class GameController {
       id: 0,
     };
     sockets.map((socket) => socket.send(JSON.stringify(res)));
-  }
-  async randomAttack(data: string) {
-    const { indexPlayer, gameId }: RandomAttackData = JSON.parse(data);
+  };
 
-    this.ws.send(
-      JSON.stringify({
-        type: RequestTypes.RANDOM_ATTACK,
-        data: JSON.stringify({ indexPlayer, gameId }),
-        id: 0,
-      })
-    );
-  }
-  async turn() {
+  turn = async () => {
     const resData: TurnResponseData = {
-      currentPlayer: globalPlayer.id,
+      // currentPlayer: globalGame.turnPlayer.id,
+      currentPlayer: 1,
     };
     const res: TurnResponse = {
       type: RequestTypes.TURN,
@@ -224,10 +250,12 @@ export class GameController {
       id: 0,
     };
     sockets.map((socket) => socket.send(JSON.stringify(res)));
-  }
-  async finishGame() {
+  };
+  finishGame = async () => {
+    const player = await this.gameService.getPlayerById(String(this.ws.id));
+    if (!player) throw new NotFoundError('Player not found');
     const resData: FinishGameData = {
-      winPlayer: globalPlayer.id,
+      winPlayer: player.id,
     };
     const res: FinishGameResponse = {
       type: RequestTypes.FINISH,
@@ -235,5 +263,5 @@ export class GameController {
       id: 0,
     };
     sockets.map((socket) => socket.send(JSON.stringify(res)));
-  }
+  };
 }

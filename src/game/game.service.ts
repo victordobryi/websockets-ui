@@ -3,11 +3,11 @@ import { Player } from '../player/player';
 import { Room } from '../room/room';
 import { getErrorMessage } from '../utils/getErrorMessage';
 import { Game } from './game';
-import { UsersRoom } from './game.interface';
+import { db } from '../..';
 
 export class GameService {
   private db: InMemoryDB;
-  constructor(db: InMemoryDB) {
+  constructor() {
     this.db = db;
   }
 

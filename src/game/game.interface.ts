@@ -1,4 +1,4 @@
-import { Room } from '../room/room';
+import { WebSocket } from 'ws';
 
 export enum RequestTypes {
   REG = 'reg',
@@ -104,6 +104,11 @@ export interface Position {
   y: number;
 }
 
+export interface HitStatus {
+  position: Position;
+  hit: boolean;
+}
+
 export interface Ship {
   position: Position;
   direction: boolean;
@@ -187,5 +192,9 @@ export interface FinishGameData {
 export interface FinishGameResponse {
   type: RequestTypes.FINISH;
   data: string;
+  id: number;
+}
+
+export interface SoketClient extends WebSocket {
   id: number;
 }

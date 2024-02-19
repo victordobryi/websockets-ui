@@ -1,4 +1,3 @@
-import { RoomUser } from '../game/game.interface';
 import { Player } from '../player/player';
 import { getUniqueId } from '../utils/getUniqueId';
 
