@@ -118,15 +118,6 @@ export class GameController {
     const player = await this.gameService.getPlayerById(String(this.ws.id));
     if (!player) throw new NotFoundError('Player not found');
     room.addUser(player);
-    this.ws.send(
-      JSON.stringify({
-        type: RequestTypes.ADD_USER_TO_ROOM,
-        data: JSON.stringify({
-          indexRoom: room?.roomId,
-        }),
-        id: 0,
-      })
-    );
     await this.updateRoom();
     await this.createGame(room);
   };
