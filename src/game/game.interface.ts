@@ -104,11 +104,6 @@ export interface Position {
   y: number;
 }
 
-export interface HitStatus {
-  position: Position;
-  hit: boolean;
-}
-
 export interface Ship {
   position: Position;
   direction: boolean;

@@ -14,6 +14,7 @@ import {
   FinishGameData,
   FinishGameResponse,
   PlayerRegData,
+  Position,
   RandomAttackData,
   RegResponse,
   RegResponseData,
@@ -30,6 +31,16 @@ import {
 import { GameService } from './game.service';
 import { sockets } from '../ws_server';
 import { Player } from '../player/player';
+
+// TODO
+// 1) Player не должен видеть свою комнату в списке доступных комнат
+// 2) Если Player2 ливнул, то комната вновь появляется в списке доступных
+// 3) Убрать 10x10 Board. Сделать функцию без заданияр азмера доски
+// 4) Добавить логику random attack
+// 5) remove code duplicate
+// 6) Нельзя кликать по точкам, где уже был выстрел
+// 7) Если корабль погиб, то закрашиваем полностью
+// 8) Разнести методы по разным контроллерам. <300 строк
 
 export class GameController {
   private gameService: GameService;
@@ -127,76 +138,116 @@ export class GameController {
     const game = new Game(roomUsers[0], roomUsers[1]);
     const player = await this.gameService.getPlayerById(String(this.ws.id));
     if (!player) throw new NotFoundError('Player not found');
-    const resData: CreateGameResData = {
-      idGame: game.idGame,
-      idPlayer: roomUsers[0].id,
-    };
-    const res: CreateGameResponse = {
-      type: RequestTypes.CREATE_GAME,
-      data: JSON.stringify(resData),
-      id: 0,
-    };
     this.gameService.createGame(game);
-    sockets.map((socket) => socket.send(JSON.stringify(res)));
+
+    roomUsers.forEach((user) => {
+      const resData: CreateGameResData = {
+        idGame: game.idGame,
+        idPlayer: user.id,
+      };
+      const res: CreateGameResponse = {
+        type: RequestTypes.CREATE_GAME,
+        data: JSON.stringify(resData),
+        id: 0,
+      };
+      sockets.find(({ id }) => id === user.id)?.send(JSON.stringify(res));
+    });
   };
   addShips = async (data: string) => {
     const { gameId, indexPlayer, ships }: AddShipData = JSON.parse(data);
-    const player = await this.gameService.getPlayerById(String(this.ws.id));
+    const player = await this.gameService.getPlayerById(String(indexPlayer));
     if (!player) throw new NotFoundError('Player not found');
     player.placeShips(ships);
     try {
       const game = await this.gameService.getGameById(String(gameId));
       if (!game) throw new NotFoundError('Game not found');
-      game.isGameStarted() ? this.startGame() : null;
+      game.isGameStarted() ? this.startGame(game) : null;
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
   };
-  startGame = async () => {
-    const player = await this.gameService.getPlayerById(String(this.ws.id));
-    if (!player) throw new NotFoundError('Player not found');
-    const resData: StartGameData = {
-      ships: player.ships,
-      currentPlayerIndex: player.id,
-    };
-    const res: StartGameResponse = {
-      type: RequestTypes.START_GAME,
-      data: JSON.stringify(resData),
-      id: 0,
-    };
-    sockets.map((socket) => socket.send(JSON.stringify(res)));
-    await this.turn();
+  startGame = async (game: Game) => {
+    const players = [game.player1, game.player2];
+    players.forEach((player) => {
+      const resData: StartGameData = {
+        ships: player.ships,
+        currentPlayerIndex: player.id,
+      };
+      const res: StartGameResponse = {
+        type: RequestTypes.START_GAME,
+        data: JSON.stringify(resData),
+        id: 0,
+      };
+      sockets.find(({ id }) => id === player.id)?.send(JSON.stringify(res));
+    });
+    await this.turn(game);
   };
   attack = async (data: string) => {
     const { gameId, y, x, indexPlayer }: AttackData = JSON.parse(data);
     const game = await this.gameService.getGameById(String(gameId));
     if (!game) throw new NotFoundError('Game not found');
-    if (game.turnPlayer.id !== indexPlayer) {
-      throw new BadRequestError('It is not your turn');
+    if (game.turnPlayer.id === indexPlayer) {
+      const attackResult = game.attack(x, y);
+      let status: 'shot' | 'miss' | 'killed' = 'miss';
+      if (attackResult === 'shot') {
+        status = 'shot';
+      } else if (attackResult === 'killed') {
+        status = 'killed';
+      }
+      const players = [game.player1, game.player2];
+      players.forEach((player) => {
+        const resData: AttackResponseData = {
+          position: {
+            x,
+            y,
+          },
+          currentPlayer: indexPlayer,
+          status,
+        };
+        const res: AttackResponse = {
+          type: RequestTypes.ATTACK,
+          data: JSON.stringify(resData),
+          id: 0,
+        };
+        sockets.find(({ id }) => id === player.id)?.send(JSON.stringify(res));
+      });
+      if (attackResult === 'killed') {
+        const positionsAroundShip = this.getPositionsAroundShip(x, y);
+        positionsAroundShip.forEach(({ x, y }) => {
+          const resData: AttackResponseData = {
+            position: {
+              x,
+              y,
+            },
+            currentPlayer: indexPlayer,
+            status: 'miss',
+          };
+          const res: AttackResponse = {
+            type: RequestTypes.ATTACK,
+            data: JSON.stringify(resData),
+            id: 0,
+          };
+          sockets.find(({ id }) => id === indexPlayer)?.send(JSON.stringify(res));
+        });
+      }
+      this.turn(game);
     }
-    const attackResult = game.attack(x, y);
-    let status: 'shot' | 'miss' | 'killed' = 'miss';
-    if (attackResult === 'shot') {
-      status = 'shot';
-    } else if (attackResult === 'killed') {
-      status = 'killed';
-    }
-    const resData: AttackResponseData = {
-      position: {
-        x,
-        y,
-      },
-      currentPlayer: indexPlayer,
-      status,
-    };
-    const res: AttackResponse = {
-      type: RequestTypes.ATTACK,
-      data: JSON.stringify(resData),
-      id: 0,
-    };
-    this.turn();
-    sockets.map((socket) => socket.send(JSON.stringify(res)));
   };
+
+  private getPositionsAroundShip(x: number, y: number): Position[] {
+    const positions: Position[] = [];
+    for (let i = x - 1; i <= x + 1; i++) {
+      for (let j = y - 1; j <= y + 1; j++) {
+        if (i >= 0 && i < 10 && j >= 0 && j < 10) {
+          if (!(i === x && j === y)) {
+            positions.push({ x: i, y: j });
+          }
+        }
+      }
+    }
+    return positions;
+  }
+
   randomAttack = async (data: string) => {
     const { indexPlayer, gameId }: RandomAttackData = JSON.parse(data);
     const game = await this.gameService.getGameById(String(gameId));
@@ -230,17 +281,19 @@ export class GameController {
     sockets.map((socket) => socket.send(JSON.stringify(res)));
   };
 
-  turn = async () => {
-    const resData: TurnResponseData = {
-      // currentPlayer: globalGame.turnPlayer.id,
-      currentPlayer: 1,
-    };
-    const res: TurnResponse = {
-      type: RequestTypes.TURN,
-      data: JSON.stringify(resData),
-      id: 0,
-    };
-    sockets.map((socket) => socket.send(JSON.stringify(res)));
+  turn = async (game: Game) => {
+    const players = [game.player1, game.player2];
+    players.forEach((player) => {
+      const resData: TurnResponseData = {
+        currentPlayer: game.turnPlayer.id,
+      };
+      const res: TurnResponse = {
+        type: RequestTypes.TURN,
+        data: JSON.stringify(resData),
+        id: 0,
+      };
+      sockets.find(({ id }) => id === player.id)?.send(JSON.stringify(res));
+    });
   };
   finishGame = async () => {
     const player = await this.gameService.getPlayerById(String(this.ws.id));

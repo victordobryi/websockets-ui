@@ -25,7 +25,7 @@ export class Game {
       }
     }
 
-    this.toggleTurn();
+    if (result === 'miss') this.toggleTurn();
 
     return result;
   }
