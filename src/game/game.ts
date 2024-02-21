@@ -1,5 +1,6 @@
 import { Player } from '../player/player';
 import { getUniqueId } from '../utils/getUniqueId';
+import { AttackStatus } from './game.interface';
 
 export class Game {
   idGame: number;
@@ -15,17 +16,17 @@ export class Game {
     this.winner = null;
   }
 
-  attack(x: number, y: number): 'miss' | 'shot' | 'killed' {
+  attack(x: number, y: number): AttackStatus {
     const opponent = this.turnPlayer === this.player1 ? this.player2 : this.player1;
     const result = opponent.receiveAttack({ x, y });
 
-    if (result === 'killed') {
+    if (result === AttackStatus.KILLED) {
       if (this.isGameFinished(opponent)) {
         this.declareWinner(this.turnPlayer);
       }
     }
 
-    if (result === 'miss') this.toggleTurn();
+    if (result === AttackStatus.MISS) this.toggleTurn();
 
     return result;
   }

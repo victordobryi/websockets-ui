@@ -10,7 +10,7 @@ export enum RequestTypes {
   ADD_SHIPS = 'add_ships',
   START_GAME = 'start_game',
   ATTACK = 'attack',
-  RANDOM_ATTACK = 'random_attack',
+  RANDOM_ATTACK = 'randomAttack',
   TURN = 'turn',
   FINISH = 'finish',
 }
@@ -147,10 +147,16 @@ export interface AttackRequest {
   id: number;
 }
 
+export enum AttackStatus {
+  MISS = 'miss',
+  SHOT = 'shot',
+  KILLED = 'killed',
+}
+
 export interface AttackResponseData {
   position: Position;
   currentPlayer: number;
-  status: 'miss' | 'killed' | 'shot';
+  status: AttackStatus;
 }
 
 export interface AttackResponse {

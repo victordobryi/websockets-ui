@@ -1,4 +1,4 @@
-import { Position, Ship } from '../game/game.interface';
+import { AttackStatus, Position, Ship } from '../game/game.interface';
 
 export class Player {
   id: number;
@@ -21,20 +21,20 @@ export class Player {
     this.isPlaced = true;
   }
 
-  receiveAttack(position: Position): 'miss' | 'shot' | 'killed' {
+  receiveAttack(position: Position): AttackStatus {
     for (const ship of this.ships) {
       for (const shipPosition of this.getShipPositions(ship)) {
         if (shipPosition.x === position.x && shipPosition.y === position.y) {
           this.attackedPositions.push(position);
           if (this.isShipDestroyed(ship)) {
-            return 'killed';
+            return AttackStatus.KILLED;
           } else {
-            return 'shot';
+            return AttackStatus.SHOT;
           }
         }
       }
     }
-    return 'miss';
+    return AttackStatus.MISS;
   }
 
   private getShipPositions(ship: Ship): Position[] {

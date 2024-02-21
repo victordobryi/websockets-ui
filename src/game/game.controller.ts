@@ -9,6 +9,7 @@ import {
   AttackData,
   AttackResponse,
   AttackResponseData,
+  AttackStatus,
   CreateGameResData,
   CreateGameResponse,
   FinishGameData,
@@ -35,12 +36,13 @@ import { Player } from '../player/player';
 // TODO
 // 1) Player не должен видеть свою комнату в списке доступных комнат
 // 2) Если Player2 ливнул, то комната вновь появляется в списке доступных
-// 3) Убрать 10x10 Board. Сделать функцию без заданияр азмера доски
-// 4) Добавить логику random attack
-// 5) remove code duplicate
-// 6) Нельзя кликать по точкам, где уже был выстрел
-// 7) Если корабль погиб, то закрашиваем полностью
-// 8) Разнести методы по разным контроллерам. <300 строк
+// 3) Убрать 10x10 Board. Сделать функцию без задания размера доски
+// 4) Нельзя кликать по точкам, где уже был выстрел
+// 5) Если корабль погиб, то закрашиваем полностью
+// 6) Разнести методы по разным контроллерам. <300 строк
+// 7) Finish game
+// 8) Update players winner table
+// 9) Make bot for single play (optionally)
 
 export class GameController {
   private gameService: GameService;
@@ -182,18 +184,31 @@ export class GameController {
     });
     await this.turn(game);
   };
+
   attack = async (data: string) => {
     const { gameId, y, x, indexPlayer }: AttackData = JSON.parse(data);
+    await this.processAttack(gameId, indexPlayer, x, y);
+  };
+
+  randomAttack = async (data: string) => {
+    const { indexPlayer, gameId }: RandomAttackData = JSON.parse(data);
+    const x = Math.floor(Math.random() * 10);
+    const y = Math.floor(Math.random() * 10);
+    await this.processAttack(gameId, indexPlayer, x, y);
+  };
+
+  private async processAttack(gameId: number, indexPlayer: number, x: number, y: number) {
     const game = await this.gameService.getGameById(String(gameId));
     if (!game) throw new NotFoundError('Game not found');
     if (game.turnPlayer.id === indexPlayer) {
-      const attackResult = game.attack(x, y);
-      let status: 'shot' | 'miss' | 'killed' = 'miss';
-      if (attackResult === 'shot') {
-        status = 'shot';
-      } else if (attackResult === 'killed') {
-        status = 'killed';
+      const isPositionAlreadyAttacked = game.turnPlayer.attackedPositions.some(
+        (position) => position.x === x && position.y === y
+      );
+      if (isPositionAlreadyAttacked) {
+        return;
       }
+
+      const status = game.attack(x, y);
       const players = [game.player1, game.player2];
       players.forEach((player) => {
         const resData: AttackResponseData = {
@@ -211,7 +226,7 @@ export class GameController {
         };
         sockets.find(({ id }) => id === player.id)?.send(JSON.stringify(res));
       });
-      if (attackResult === 'killed') {
+      if (status === AttackStatus.KILLED) {
         const positionsAroundShip = this.getPositionsAroundShip(x, y);
         positionsAroundShip.forEach(({ x, y }) => {
           const resData: AttackResponseData = {
@@ -220,7 +235,7 @@ export class GameController {
               y,
             },
             currentPlayer: indexPlayer,
-            status: 'miss',
+            status: AttackStatus.MISS,
           };
           const res: AttackResponse = {
             type: RequestTypes.ATTACK,
@@ -232,7 +247,7 @@ export class GameController {
       }
       this.turn(game);
     }
-  };
+  }
 
   private getPositionsAroundShip(x: number, y: number): Position[] {
     const positions: Position[] = [];
@@ -247,39 +262,6 @@ export class GameController {
     }
     return positions;
   }
-
-  randomAttack = async (data: string) => {
-    const { indexPlayer, gameId }: RandomAttackData = JSON.parse(data);
-    const game = await this.gameService.getGameById(String(gameId));
-    const randomX = Math.floor(Math.random() * 10);
-    const randomY = Math.floor(Math.random() * 10);
-    if (!game) throw new NotFoundError('Game not found');
-    if (game.turnPlayer.id !== indexPlayer) {
-      throw new BadRequestError('It is not your turn');
-    }
-    const attackResult = game.attack(randomX, randomY);
-    let status: 'shot' | 'miss' | 'killed' = 'miss';
-    if (attackResult === 'shot') {
-      status = 'shot';
-    } else if (attackResult === 'killed') {
-      status = 'killed';
-    }
-
-    const resData: AttackResponseData = {
-      position: {
-        x: randomX,
-        y: randomY,
-      },
-      currentPlayer: indexPlayer,
-      status,
-    };
-    const res: AttackResponse = {
-      type: RequestTypes.ATTACK,
-      data: JSON.stringify(resData),
-      id: 0,
-    };
-    sockets.map((socket) => socket.send(JSON.stringify(res)));
-  };
 
   turn = async (game: Game) => {
     const players = [game.player1, game.player2];

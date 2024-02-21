@@ -18,6 +18,9 @@ export const startWss = (port: number) => {
     });
 
     ws.on('close', () => {
+      const index = sockets.indexOf(ws);
+      if (index !== -1) sockets.splice(index, 1);
+
       console.log('Client disconnected');
     });
   });
