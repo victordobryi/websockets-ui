@@ -15,7 +15,6 @@ import {
   FinishGameData,
   FinishGameResponse,
   PlayerRegData,
-  Position,
   RandomAttackData,
   RegResponse,
   RegResponseData,
@@ -32,17 +31,16 @@ import {
 import { GameService } from './game.service';
 import { sockets } from '../ws_server';
 import { Player } from '../player/player';
+import { getShipPositions } from '../utils/getShipPositions';
+import { getSurroundingPositions } from '../utils/getSurroundingPositions';
+import { GAME_BOARD_SIZE } from '../utils/constants/game';
 
 // TODO
 // 1) Player не должен видеть свою комнату в списке доступных комнат
 // 2) Если Player2 ливнул, то комната вновь появляется в списке доступных
-// 3) Убрать 10x10 Board. Сделать функцию без задания размера доски
-// 4) Нельзя кликать по точкам, где уже был выстрел
-// 5) Если корабль погиб, то закрашиваем полностью
-// 6) Разнести методы по разным контроллерам. <300 строк
-// 7) Finish game
-// 8) Update players winner table
-// 9) Make bot for single play (optionally)
+// 3) Разнести методы по разным контроллерам. <300 строк
+// 4) Make bot for single play (optionally)
+// 5) Если поле уже было проатаковано, то мы не отправляем запрос (нет клика)
 
 export class GameController {
   private gameService: GameService;
@@ -192,8 +190,8 @@ export class GameController {
 
   randomAttack = async (data: string) => {
     const { indexPlayer, gameId }: RandomAttackData = JSON.parse(data);
-    const x = Math.floor(Math.random() * 10);
-    const y = Math.floor(Math.random() * 10);
+    const x = Math.floor(Math.random() * GAME_BOARD_SIZE);
+    const y = Math.floor(Math.random() * GAME_BOARD_SIZE);
     await this.processAttack(gameId, indexPlayer, x, y);
   };
 
@@ -201,34 +199,45 @@ export class GameController {
     const game = await this.gameService.getGameById(String(gameId));
     if (!game) throw new NotFoundError('Game not found');
     if (game.turnPlayer.id === indexPlayer) {
-      const isPositionAlreadyAttacked = game.turnPlayer.attackedPositions.some(
+      const opp = game.getOpponent();
+      const isPositionAlreadyAttacked = opp.attackedPositions.some(
         (position) => position.x === x && position.y === y
       );
       if (isPositionAlreadyAttacked) {
         return;
       }
-
       const status = game.attack(x, y);
       const players = [game.player1, game.player2];
-      players.forEach((player) => {
-        const resData: AttackResponseData = {
-          position: {
-            x,
-            y,
-          },
-          currentPlayer: indexPlayer,
-          status,
-        };
-        const res: AttackResponse = {
-          type: RequestTypes.ATTACK,
-          data: JSON.stringify(resData),
-          id: 0,
-        };
-        sockets.find(({ id }) => id === player.id)?.send(JSON.stringify(res));
-      });
+      const resData: AttackResponseData = {
+        position: {
+          x,
+          y,
+        },
+        currentPlayer: indexPlayer,
+        status,
+      };
+      const res: AttackResponse = {
+        type: RequestTypes.ATTACK,
+        data: JSON.stringify(resData),
+        id: 0,
+      };
+      this.sendMessageToPlayers(players, res);
+
       if (status === AttackStatus.KILLED) {
-        const positionsAroundShip = this.getPositionsAroundShip(x, y);
-        positionsAroundShip.forEach(({ x, y }) => {
+        const isGameFInished = game.isGameFinished(opp);
+        if (isGameFInished) {
+          const winner = game.winner;
+          const looser = game.looser;
+          await this.finishGame(winner!, looser!);
+          return;
+        }
+        const ship = game.getShip(x, y);
+        if (!ship) throw new NotFoundError('Ship not found');
+        const shipPositions = getShipPositions(ship);
+
+        const surroundingPositions = getSurroundingPositions(shipPositions);
+        surroundingPositions.forEach(({ x, y }) => {
+          game.addMissedShots({ x, y });
           const resData: AttackResponseData = {
             position: {
               x,
@@ -242,52 +251,61 @@ export class GameController {
             data: JSON.stringify(resData),
             id: 0,
           };
-          sockets.find(({ id }) => id === indexPlayer)?.send(JSON.stringify(res));
+          this.sendMessageToPlayers(players, res);
+        });
+        shipPositions.forEach(({ x, y }) => {
+          const resData: AttackResponseData = {
+            position: {
+              x,
+              y,
+            },
+            currentPlayer: indexPlayer,
+            status: AttackStatus.KILLED,
+          };
+          const res: AttackResponse = {
+            type: RequestTypes.ATTACK,
+            data: JSON.stringify(resData),
+            id: 0,
+          };
+          this.sendMessageToPlayers(players, res);
         });
       }
       this.turn(game);
     }
   }
 
-  private getPositionsAroundShip(x: number, y: number): Position[] {
-    const positions: Position[] = [];
-    for (let i = x - 1; i <= x + 1; i++) {
-      for (let j = y - 1; j <= y + 1; j++) {
-        if (i >= 0 && i < 10 && j >= 0 && j < 10) {
-          if (!(i === x && j === y)) {
-            positions.push({ x: i, y: j });
-          }
-        }
-      }
-    }
-    return positions;
-  }
-
   turn = async (game: Game) => {
     const players = [game.player1, game.player2];
-    players.forEach((player) => {
-      const resData: TurnResponseData = {
-        currentPlayer: game.turnPlayer.id,
-      };
-      const res: TurnResponse = {
-        type: RequestTypes.TURN,
-        data: JSON.stringify(resData),
-        id: 0,
-      };
-      sockets.find(({ id }) => id === player.id)?.send(JSON.stringify(res));
-    });
+    const resData: TurnResponseData = {
+      currentPlayer: game.turnPlayer.id,
+    };
+    const res: TurnResponse = {
+      type: RequestTypes.TURN,
+      data: JSON.stringify(resData),
+      id: 0,
+    };
+    this.sendMessageToPlayers(players, res);
   };
-  finishGame = async () => {
-    const player = await this.gameService.getPlayerById(String(this.ws.id));
-    if (!player) throw new NotFoundError('Player not found');
+
+  finishGame = async (winner: Player, looser: Player) => {
     const resData: FinishGameData = {
-      winPlayer: player.id,
+      winPlayer: winner.id,
     };
     const res: FinishGameResponse = {
       type: RequestTypes.FINISH,
       data: JSON.stringify(resData),
       id: 0,
     };
-    sockets.map((socket) => socket.send(JSON.stringify(res)));
+    const players = [winner, looser];
+    this.sendMessageToPlayers(players, res);
+
+    await this.updateRoom();
   };
+
+  sendMessageToPlayers(players: Player[], res: any) {
+    players.forEach((player) => {
+      sockets.find(({ id }) => id === player.id)?.send(JSON.stringify(res));
+    });
+    return;
+  }
 }

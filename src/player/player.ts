@@ -1,11 +1,14 @@
 import { AttackStatus, Position, Ship } from '../game/game.interface';
+import { getShipPositions } from '../utils/getShipPositions';
+
+// TODO
+// 1) Создать класс Ship с методами, которые вынесены в utils
 
 export class Player {
   id: number;
   password: string;
   wins: number;
   name: string;
-  cells: Position[] = [];
   ships: Ship[] = [];
   isPlaced: boolean = false;
   attackedPositions: Position[] = [];
@@ -21,11 +24,22 @@ export class Player {
     this.isPlaced = true;
   }
 
-  receiveAttack(position: Position): AttackStatus {
+  getShip(position: Position): Ship | null {
     for (const ship of this.ships) {
-      for (const shipPosition of this.getShipPositions(ship)) {
+      for (const shipPosition of getShipPositions(ship)) {
         if (shipPosition.x === position.x && shipPosition.y === position.y) {
-          this.attackedPositions.push(position);
+          return ship;
+        }
+      }
+    }
+    return null;
+  }
+
+  receiveAttack(position: Position): AttackStatus {
+    this.attackedPositions.push(position);
+    for (const ship of this.ships) {
+      for (const shipPosition of getShipPositions(ship)) {
+        if (shipPosition.x === position.x && shipPosition.y === position.y) {
           if (this.isShipDestroyed(ship)) {
             return AttackStatus.KILLED;
           } else {
@@ -37,24 +51,8 @@ export class Player {
     return AttackStatus.MISS;
   }
 
-  private getShipPositions(ship: Ship): Position[] {
-    const positions: Position[] = [];
-    let { x, y } = ship.position;
-    const { length, direction } = ship;
-
-    for (let i = 0; i < length; i++) {
-      positions.push({ x, y });
-      if (direction) {
-        y++;
-      } else {
-        x++;
-      }
-    }
-    return positions;
-  }
-
   isShipDestroyed(ship: Ship): boolean {
-    const shipPositions = this.getShipPositions(ship);
+    const shipPositions = getShipPositions(ship);
     for (const position of shipPositions) {
       if (!this.isPositionShot(position)) {
         return false;
@@ -70,5 +68,15 @@ export class Player {
       }
     }
     return false;
+  }
+
+  addMissedShots(position: Position) {
+    this.attackedPositions.push(position);
+  }
+
+  clearGameData() {
+    this.ships = [];
+    this.isPlaced = false;
+    this.attackedPositions = [];
   }
 }

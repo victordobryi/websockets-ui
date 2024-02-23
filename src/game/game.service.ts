@@ -19,12 +19,14 @@ export class GameService {
     return this.db.getAll();
   }
 
-  async updateWinners(): Promise<Player[]> {
+  async updateWinners() {
     try {
       const allPlayers = await this.db.getAll();
+
       return allPlayers
-        .filter((data: any) => data.type === 'player' && data.wins >= 1)
-        .map((data: any) => data.data) as Player[];
+        .filter((data: any) => data.type === 'player' && data.data.wins >= 1)
+        .sort((a: any, b: any) => b.data.wins - a.data.wins)
+        .map((data: any) => data.data);
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
