@@ -39,12 +39,13 @@ import { getShipPositions } from '../utils/getShipPositions';
 import { getSurroundingPositions } from '../utils/getSurroundingPositions';
 import { GAME_BOARD_SIZE } from '../utils/constants/game';
 import { getUniqueId } from '../utils/getUniqueId';
+import { ShipPlacer } from '../ship/ship.controller';
 
 // TODO
 // 1) Если Player2 ливнул, то комната вновь появляется в списке доступных
-// 2) Make bot for single play (optionally)
 // 3) При выстреле по клетке, где уже был выстрел, отменяется таймер
 // 4) При входе в комнату мы удаляем комнату уже созданную нами
+// 5) Класс для корабля со всеми методами
 
 export class GameController {
   private gameService: GameService;
@@ -319,7 +320,7 @@ export class GameController {
     };
     this.sendMessageToPlayers(players, res);
   }
-  async singlePlayMode(data: string) {
+  async singlePlayMode() {
     const player = await this.getPlayerById();
     const room = new Room(player);
     const bot = new Player('Bot', '123', getUniqueId());
@@ -340,77 +341,8 @@ export class GameController {
       };
       sockets.find(({ id }) => id === user.id)?.send(JSON.stringify(res));
     });
-
-    const ships = this.generateShips(10);
+    const shipPlacer = new ShipPlacer();
+    const ships = shipPlacer.placeShips();
     bot.placeShips(ships);
-  }
-  getRandomPosition(boardSize: number, shipLength: number, horizontal: boolean): Position {
-    const position: Position = { x: 0, y: 0 };
-    if (horizontal) {
-      position.x = Math.floor(Math.random() * (boardSize - shipLength + 1));
-      position.y = Math.floor(Math.random() * boardSize);
-    } else {
-      position.x = Math.floor(Math.random() * boardSize);
-      position.y = Math.floor(Math.random() * (boardSize - shipLength + 1));
-    }
-    return position;
-  }
-
-  isPositionValid(position: Position, boardSize: number, ships: Ship[]): boolean {
-    if (position.x < 0 || position.y < 0 || position.x >= boardSize || position.y >= boardSize) {
-      return false; // Проверка выхода за границы доски
-    }
-    for (const ship of ships) {
-      if (
-        Math.abs(position.x - ship.position.x) < 2 &&
-        Math.abs(position.y - ship.position.y) < 2
-      ) {
-        return false; // Расстояние между кораблями меньше 1 клетки
-      }
-      if (ship.direction) {
-        // Горизонтальное размещение
-        if (
-          position.y === ship.position.y &&
-          position.x >= ship.position.x - 1 &&
-          position.x <= ship.position.x + ship.length
-        ) {
-          return false; // Проверка наложения кораблей
-        }
-      } else {
-        // Вертикальное размещение
-        if (
-          position.x === ship.position.x &&
-          position.y >= ship.position.y - 1 &&
-          position.y <= ship.position.y + ship.length
-        ) {
-          return false; // Проверка наложения кораблей
-        }
-      }
-    }
-    return true;
-  }
-
-  generateShips(boardSize: number): Ship[] {
-    const ships: Ship[] = [];
-    const shipTypes: ShipType[] = ['small', 'medium', 'large', 'huge'];
-
-    // Генерация кораблей с заданным количеством клеток
-    for (let i = 0; i < 4; i++) {
-      for (let j = 0; j < 4 - i; j++) {
-        let validPosition = false;
-        while (!validPosition) {
-          const direction = Math.random() < 0.5; // Случайное определение направления корабля
-          const shipLength = i + 1;
-          const position = this.getRandomPosition(boardSize, shipLength, direction);
-
-          if (this.isPositionValid(position, boardSize, ships)) {
-            ships.push({ position, direction, length: shipLength, type: shipTypes[i] });
-            validPosition = true;
-          }
-        }
-      }
-    }
-    console.log(ships, 'ships');
-    return ships;
   }
 }
