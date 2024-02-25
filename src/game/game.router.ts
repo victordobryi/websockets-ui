@@ -21,6 +21,8 @@ export const gameRouter = (message: RawData, ws: SoketClient) => {
         return gameController.attack(data);
       case RequestTypes.RANDOM_ATTACK:
         return gameController.randomAttack(data);
+      case RequestTypes.SIGNLE_PLAY:
+        return gameController.singlePlayMode(data);
       default:
         return { error: 'Unknown type of request' };
     }

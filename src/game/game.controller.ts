@@ -15,10 +15,14 @@ import {
   FinishGameData,
   FinishGameResponse,
   PlayerRegData,
+  Position,
   RandomAttackData,
   RegResponse,
   RegResponseData,
   RequestTypes,
+  Ship,
+  ShipType,
+  SinglePlayRequest,
   SoketClient,
   StartGameData,
   StartGameResponse,
@@ -258,6 +262,13 @@ export class GameController {
       id: 0,
     };
     this.sendMessageToPlayers(players, res);
+    if (game.turnPlayer.name === 'Bot') {
+      const randomAttackData = {
+        indexPlayer: game.turnPlayer.id,
+        gameId: game.idGame,
+      };
+      await this.randomAttack(JSON.stringify(randomAttackData));
+    }
   }
   async finishGame(winner: Player, looser: Player) {
     const resData: FinishGameData = {
@@ -307,5 +318,99 @@ export class GameController {
       id: 0,
     };
     this.sendMessageToPlayers(players, res);
+  }
+  async singlePlayMode(data: string) {
+    const player = await this.getPlayerById();
+    const room = new Room(player);
+    const bot = new Player('Bot', '123', getUniqueId());
+    room.addUser(bot);
+    const game = new Game(player, bot);
+    this.gameService.createGame(game);
+    const roomUsers = [player, bot];
+
+    roomUsers.forEach((user) => {
+      const resData: CreateGameResData = {
+        idGame: game.idGame,
+        idPlayer: user.id,
+      };
+      const res: CreateGameResponse = {
+        type: RequestTypes.CREATE_GAME,
+        data: JSON.stringify(resData),
+        id: 0,
+      };
+      sockets.find(({ id }) => id === user.id)?.send(JSON.stringify(res));
+    });
+
+    const ships = this.generateShips(10);
+    bot.placeShips(ships);
+  }
+  getRandomPosition(boardSize: number, shipLength: number, horizontal: boolean): Position {
+    const position: Position = { x: 0, y: 0 };
+    if (horizontal) {
+      position.x = Math.floor(Math.random() * (boardSize - shipLength + 1));
+      position.y = Math.floor(Math.random() * boardSize);
+    } else {
+      position.x = Math.floor(Math.random() * boardSize);
+      position.y = Math.floor(Math.random() * (boardSize - shipLength + 1));
+    }
+    return position;
+  }
+
+  isPositionValid(position: Position, boardSize: number, ships: Ship[]): boolean {
+    if (position.x < 0 || position.y < 0 || position.x >= boardSize || position.y >= boardSize) {
+      return false; // Проверка выхода за границы доски
+    }
+    for (const ship of ships) {
+      if (
+        Math.abs(position.x - ship.position.x) < 2 &&
+        Math.abs(position.y - ship.position.y) < 2
+      ) {
+        return false; // Расстояние между кораблями меньше 1 клетки
+      }
+      if (ship.direction) {
+        // Горизонтальное размещение
+        if (
+          position.y === ship.position.y &&
+          position.x >= ship.position.x - 1 &&
+          position.x <= ship.position.x + ship.length
+        ) {
+          return false; // Проверка наложения кораблей
+        }
+      } else {
+        // Вертикальное размещение
+        if (
+          position.x === ship.position.x &&
+          position.y >= ship.position.y - 1 &&
+          position.y <= ship.position.y + ship.length
+        ) {
+          return false; // Проверка наложения кораблей
+        }
+      }
+    }
+    return true;
+  }
+
+  generateShips(boardSize: number): Ship[] {
+    const ships: Ship[] = [];
+    const shipTypes: ShipType[] = ['small', 'medium', 'large', 'huge'];
+
+    // Генерация кораблей с заданным количеством клеток
+    for (let i = 0; i < 4; i++) {
+      for (let j = 0; j < 4 - i; j++) {
+        let validPosition = false;
+        while (!validPosition) {
+          const direction = Math.random() < 0.5; // Случайное определение направления корабля
+          const shipLength = i + 1;
+          const position = this.getRandomPosition(boardSize, shipLength, direction);
+
+          if (this.isPositionValid(position, boardSize, ships)) {
+            ships.push({ position, direction, length: shipLength, type: shipTypes[i] });
+            validPosition = true;
+          }
+        }
+      }
+    }
+    console.log(ships, 'ships');
+    return ships;
   }
 }

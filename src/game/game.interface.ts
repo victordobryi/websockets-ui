@@ -13,6 +13,7 @@ export enum RequestTypes {
   RANDOM_ATTACK = 'randomAttack',
   TURN = 'turn',
   FINISH = 'finish',
+  SIGNLE_PLAY = 'single_play',
 }
 
 export interface GameRequest {
@@ -104,11 +105,13 @@ export interface Position {
   y: number;
 }
 
+export type ShipType = 'small' | 'medium' | 'large' | 'huge';
+
 export interface Ship {
   position: Position;
   direction: boolean;
   length: number;
-  type: 'small' | 'medium' | 'large' | 'huge';
+  type: ShipType;
 }
 
 export interface AddShipData {
@@ -197,5 +200,11 @@ export interface FinishGameResponse {
 }
 
 export interface SoketClient extends WebSocket {
+  id: number;
+}
+
+export interface SinglePlayRequest {
+  type: RequestTypes.SIGNLE_PLAY;
+  data: string;
   id: number;
 }
