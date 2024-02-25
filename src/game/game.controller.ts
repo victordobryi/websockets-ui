@@ -34,13 +34,13 @@ import { Player } from '../player/player';
 import { getShipPositions } from '../utils/getShipPositions';
 import { getSurroundingPositions } from '../utils/getSurroundingPositions';
 import { GAME_BOARD_SIZE } from '../utils/constants/game';
+import { getUniqueId } from '../utils/getUniqueId';
 
 // TODO
-// 1) Player не должен видеть свою комнату в списке доступных комнат
-// 2) Если Player2 ливнул, то комната вновь появляется в списке доступных
-// 3) Разнести методы по разным контроллерам. <300 строк
-// 4) Make bot for single play (optionally)
-// 5) Если поле уже было проатаковано, то мы не отправляем запрос (нет клика)
+// 1) Если Player2 ливнул, то комната вновь появляется в списке доступных
+// 2) Make bot for single play (optionally)
+// 3) При выстреле по клетке, где уже был выстрел, отменяется таймер
+// 4) При входе в комнату мы удаляем комнату уже созданную нами
 
 export class GameController {
   private gameService: GameService;
@@ -50,29 +50,35 @@ export class GameController {
     this.ws = ws;
   }
 
-  auth = async (data: string) => {
+  async auth(data: string) {
     const { name, password }: PlayerRegData = JSON.parse(data);
     try {
-      const player = await this.gameService.getPlayerByName(name);
-      if (player) {
+      let player = await this.gameService.getPlayerByName(name);
+
+      if (player && player.password !== password)
         throw new BadRequestError('Player with this name already exists');
-      } else {
-        const player = new Player(name, password, this.ws.id);
-        const resData: RegResponseData = {
-          name: player.name,
-          index: player.id,
-          error: false,
-          errorText: '',
-        };
-        const res: RegResponse = {
-          type: RequestTypes.REG,
-          data: JSON.stringify(resData),
-          id: 0,
-        };
-        this.ws.send(JSON.stringify(res));
+
+      if (!player) {
+        this.ws.id = getUniqueId();
+        player = new Player(name, password, this.ws.id);
         await this.gameService.auth(player);
-        await this.updateRoom();
       }
+
+      this.ws.id = player.id;
+
+      const resData: RegResponseData = {
+        name: player.name,
+        index: player.id,
+        error: false,
+        errorText: '',
+      };
+      const res: RegResponse = {
+        type: RequestTypes.REG,
+        data: JSON.stringify(resData),
+        id: 0,
+      };
+      this.ws.send(JSON.stringify(res));
+      await this.updateRoom();
     } catch (error) {
       const resData: RegResponseData = {
         index: NaN,
@@ -87,11 +93,10 @@ export class GameController {
       };
       this.ws.send(JSON.stringify(res));
     }
-  };
-  updateRoom = async (isForAll: boolean = false) => {
+  }
+  async updateRoom(isForAll: boolean = false) {
     try {
-      const rooms = await this.gameService.getAllRooms();
-      const availableRooms = rooms.filter((room) => room.roomUsers.length < 2);
+      const availableRooms = await this.gameService.getAvailableRooms();
       const res: UpdateRoomResponse = {
         type: RequestTypes.UPDATE_ROOM,
         data: JSON.stringify(availableRooms),
@@ -102,8 +107,8 @@ export class GameController {
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
-  };
-  updateWinners = async () => {
+  }
+  async updateWinners() {
     const players = await this.gameService.updateWinners();
     const winnersDto: Winners[] = getWinnersDto(players);
     const res: UpdateWinnersResponse = {
@@ -112,32 +117,40 @@ export class GameController {
       id: 0,
     };
     sockets.map((socket) => socket.send(JSON.stringify(res)));
-  };
+  }
+  async createRoom() {
+    try {
+      const player = await this.getPlayerById();
+      const rooms = await this.gameService.getAllRooms();
+      const existingRoomWithUser = rooms.find((room) =>
+        room.roomUsers.some((user) => user.id === player.id)
+      );
+      if (existingRoomWithUser) throw new Error('User already exists in the room');
 
-  createRoom = async () => {
-    const player = await this.gameService.getPlayerById(String(this.ws.id));
-    if (!player) throw new NotFoundError('Player not found');
-    const room = new Room(player);
-    await this.gameService.createRoom(room);
-    await this.updateRoom();
-  };
+      const room = new Room(player);
+      await this.gameService.createRoom(room);
+      await this.updateRoom();
+    } catch (error) {
+      console.log(getErrorMessage(error));
+    }
+  }
+  async addUserToRoom(data: string) {
+    try {
+      const { indexRoom }: AddUserToRoomReqData = JSON.parse(data);
+      const room = await this.gameService.getRoomById(String(indexRoom));
+      if (!room) throw new NotFoundError('Room not found');
+      const player = await this.getPlayerById();
 
-  addUserToRoom = async (data: string) => {
-    const { indexRoom }: AddUserToRoomReqData = JSON.parse(data);
-    const room = await this.gameService.getRoomById(String(indexRoom));
-    if (!room) throw new NotFoundError('Room not found');
-    const player = await this.gameService.getPlayerById(String(this.ws.id));
-    if (!player) throw new NotFoundError('Player not found');
-    room.addUser(player);
-    await this.updateRoom();
-    await this.createGame(room);
-  };
-
-  createGame = async (room: Room) => {
+      room.addUser(player);
+      await this.updateRoom();
+      await this.createGame(room);
+    } catch (error) {
+      console.log(getErrorMessage(error));
+    }
+  }
+  async createGame(room: Room) {
     const { roomUsers } = room;
     const game = new Game(roomUsers[0], roomUsers[1]);
-    const player = await this.gameService.getPlayerById(String(this.ws.id));
-    if (!player) throw new NotFoundError('Player not found');
     this.gameService.createGame(game);
 
     roomUsers.forEach((user) => {
@@ -152,22 +165,20 @@ export class GameController {
       };
       sockets.find(({ id }) => id === user.id)?.send(JSON.stringify(res));
     });
-  };
-  addShips = async (data: string) => {
+  }
+  async addShips(data: string) {
     const { gameId, indexPlayer, ships }: AddShipData = JSON.parse(data);
-    const player = await this.gameService.getPlayerById(String(indexPlayer));
-    if (!player) throw new NotFoundError('Player not found');
+    const player = await this.getPlayerById(String(indexPlayer));
     player.placeShips(ships);
     try {
-      const game = await this.gameService.getGameById(String(gameId));
-      if (!game) throw new NotFoundError('Game not found');
+      const game = await this.getGameById(String(gameId));
       game.isGameStarted() ? this.startGame(game) : null;
     } catch (error) {
-      throw new Error(getErrorMessage(error));
+      console.log(getErrorMessage(error));
     }
-  };
-  startGame = async (game: Game) => {
-    const players = [game.player1, game.player2];
+  }
+  async startGame(game: Game) {
+    const players = game.getPlayers();
     players.forEach((player) => {
       const resData: StartGameData = {
         ships: player.ships,
@@ -181,53 +192,40 @@ export class GameController {
       sockets.find(({ id }) => id === player.id)?.send(JSON.stringify(res));
     });
     await this.turn(game);
-  };
-
-  attack = async (data: string) => {
+  }
+  async attack(data: string) {
     const { gameId, y, x, indexPlayer }: AttackData = JSON.parse(data);
     await this.processAttack(gameId, indexPlayer, x, y);
-  };
-
-  randomAttack = async (data: string) => {
+  }
+  async randomAttack(data: string) {
     const { indexPlayer, gameId }: RandomAttackData = JSON.parse(data);
     const x = Math.floor(Math.random() * GAME_BOARD_SIZE);
     const y = Math.floor(Math.random() * GAME_BOARD_SIZE);
-    await this.processAttack(gameId, indexPlayer, x, y);
-  };
-
+    const game = await this.getGameById(String(gameId));
+    if (game.isPositionAlreadyAttacked({ x, y })) {
+      this.randomAttack(data);
+    } else {
+      await this.processAttack(gameId, indexPlayer, x, y);
+    }
+  }
   private async processAttack(gameId: number, indexPlayer: number, x: number, y: number) {
-    const game = await this.gameService.getGameById(String(gameId));
-    if (!game) throw new NotFoundError('Game not found');
-    if (game.turnPlayer.id === indexPlayer) {
-      const opp = game.getOpponent();
-      const isPositionAlreadyAttacked = opp.attackedPositions.some(
-        (position) => position.x === x && position.y === y
-      );
-      if (isPositionAlreadyAttacked) {
+    try {
+      const game = await this.getGameById(String(gameId));
+      game.validateAttack(indexPlayer, { x, y });
+      const status = game.attack(x, y);
+      const players = game.getPlayers();
+      this.sendAttackResponse(players, indexPlayer, x, y, status);
+
+      if (game.isGameFinished()) {
+        const { winner, looser } = game.getPlayersResult();
+        await this.finishGame(winner!, looser!);
         return;
       }
-      const status = game.attack(x, y);
-      const players = [game.player1, game.player2];
-      const resData: AttackResponseData = {
-        position: {
-          x,
-          y,
-        },
-        currentPlayer: indexPlayer,
-        status,
-      };
-      const res: AttackResponse = {
-        type: RequestTypes.ATTACK,
-        data: JSON.stringify(resData),
-        id: 0,
-      };
-      this.sendMessageToPlayers(players, res);
 
       if (status === AttackStatus.KILLED) {
-        const isGameFInished = game.isGameFinished(opp);
-        if (isGameFInished) {
-          const winner = game.winner;
-          const looser = game.looser;
+        const isGameFinished = game.isGameFinished();
+        if (isGameFinished) {
+          const { winner, looser } = game.getPlayersResult();
           await this.finishGame(winner!, looser!);
           return;
         }
@@ -238,44 +236,19 @@ export class GameController {
         const surroundingPositions = getSurroundingPositions(shipPositions);
         surroundingPositions.forEach(({ x, y }) => {
           game.addMissedShots({ x, y });
-          const resData: AttackResponseData = {
-            position: {
-              x,
-              y,
-            },
-            currentPlayer: indexPlayer,
-            status: AttackStatus.MISS,
-          };
-          const res: AttackResponse = {
-            type: RequestTypes.ATTACK,
-            data: JSON.stringify(resData),
-            id: 0,
-          };
-          this.sendMessageToPlayers(players, res);
+          this.sendAttackResponse(players, indexPlayer, x, y, AttackStatus.MISS);
         });
         shipPositions.forEach(({ x, y }) => {
-          const resData: AttackResponseData = {
-            position: {
-              x,
-              y,
-            },
-            currentPlayer: indexPlayer,
-            status: AttackStatus.KILLED,
-          };
-          const res: AttackResponse = {
-            type: RequestTypes.ATTACK,
-            data: JSON.stringify(resData),
-            id: 0,
-          };
-          this.sendMessageToPlayers(players, res);
+          this.sendAttackResponse(players, indexPlayer, x, y, AttackStatus.KILLED);
         });
       }
       this.turn(game);
+    } catch (error) {
+      console.log(getErrorMessage(error));
     }
   }
-
-  turn = async (game: Game) => {
-    const players = [game.player1, game.player2];
+  async turn(game: Game) {
+    const players = game.getPlayers();
     const resData: TurnResponseData = {
       currentPlayer: game.turnPlayer.id,
     };
@@ -285,9 +258,8 @@ export class GameController {
       id: 0,
     };
     this.sendMessageToPlayers(players, res);
-  };
-
-  finishGame = async (winner: Player, looser: Player) => {
+  }
+  async finishGame(winner: Player, looser: Player) {
     const resData: FinishGameData = {
       winPlayer: winner.id,
     };
@@ -300,12 +272,40 @@ export class GameController {
     this.sendMessageToPlayers(players, res);
 
     await this.updateRoom();
-  };
-
+  }
   sendMessageToPlayers(players: Player[], res: any) {
     players.forEach((player) => {
       sockets.find(({ id }) => id === player.id)?.send(JSON.stringify(res));
     });
     return;
+  }
+  async getPlayerById(id: string = String(this.ws.id)) {
+    const player = await this.gameService.getPlayerById(id);
+    if (!player) throw new NotFoundError('Player not found');
+    return player;
+  }
+  async getGameById(id: string) {
+    const game = await this.gameService.getGameById(id);
+    if (!game) throw new NotFoundError('Game not found');
+    return game;
+  }
+  sendAttackResponse(
+    players: Player[],
+    indexPlayer: number,
+    x: number,
+    y: number,
+    status: AttackStatus
+  ) {
+    const resData: AttackResponseData = {
+      position: { x, y },
+      currentPlayer: indexPlayer,
+      status,
+    };
+    const res: AttackResponse = {
+      type: RequestTypes.ATTACK,
+      data: JSON.stringify(resData),
+      id: 0,
+    };
+    this.sendMessageToPlayers(players, res);
   }
 }

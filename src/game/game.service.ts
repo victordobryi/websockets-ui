@@ -92,6 +92,11 @@ export class GameService {
     }
   }
 
+  async getAvailableRooms() {
+    const rooms = await this.getAllRooms();
+    return rooms.filter((room) => room.roomUsers.length < 2);
+  }
+
   async createRoom(room: Room) {
     return this.db.save({ type: 'room', room, id: room.roomId });
   }

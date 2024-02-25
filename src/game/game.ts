@@ -1,4 +1,5 @@
 import { Player } from '../player/player';
+import { BadRequestError } from '../utils/customErrors';
 import { getUniqueId } from '../utils/getUniqueId';
 import { AttackStatus, Position } from './game.interface';
 
@@ -18,12 +19,24 @@ export class Game {
     this.looser = null;
   }
 
+  validateAttack(indexPlayer: number, { x, y }: Position) {
+    if (this.isCurrentPlayer(indexPlayer)) {
+      const isPositionAlreadyAttacked = this.isPositionAlreadyAttacked({ x, y });
+
+      if (isPositionAlreadyAttacked) {
+        throw new Error('This position has already been attacked');
+      }
+    } else {
+      throw new BadRequestError('Not your turn');
+    }
+  }
+
   attack(x: number, y: number): AttackStatus {
-    const opponent = this.turnPlayer === this.player1 ? this.player2 : this.player1;
+    const opponent = this.getOpponent();
     const result = opponent.receiveAttack({ x, y });
 
     if (result === AttackStatus.KILLED) {
-      if (this.isGameFinished(opponent)) {
+      if (this.isGameFinished()) {
         this.declareWinner(this.turnPlayer);
         this.declareLooser(opponent);
         this.clearPlayersGameData();
@@ -33,6 +46,10 @@ export class Game {
     if (result === AttackStatus.MISS) this.toggleTurn();
 
     return result;
+  }
+
+  isCurrentPlayer(playerId: number): boolean {
+    return this.turnPlayer.id === playerId;
   }
 
   getShip(x: number, y: number) {
@@ -45,11 +62,10 @@ export class Game {
     this.player2.clearGameData();
   }
 
-  isGameFinished(player: Player): boolean {
-    for (const ship of player.ships) {
-      if (!player.isShipDestroyed(ship)) {
-        return false;
-      }
+  isGameFinished(): boolean {
+    const opponent = this.getOpponent();
+    for (const ship of opponent.ships) {
+      if (!opponent.isShipDestroyed(ship)) return false;
     }
     return true;
   }
@@ -81,5 +97,21 @@ export class Game {
 
   getPlayers() {
     return [this.player1, this.player2];
+  }
+
+  isPositionAlreadyAttacked({ x, y }: Position) {
+    const opponent = this.getOpponent();
+    return opponent.attackedPositions.some((position) => position.x === x && position.y === y);
+  }
+
+  getPlayersResult() {
+    if (this.winner && this.looser) {
+      return {
+        winner: this.winner,
+        looser: this.looser,
+      };
+    } else {
+      throw new BadRequestError('Something wrong getting players result');
+    }
   }
 }

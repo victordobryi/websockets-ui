@@ -1,9 +1,6 @@
 import { AttackStatus, Position, Ship } from '../game/game.interface';
 import { getShipPositions } from '../utils/getShipPositions';
 
-// TODO
-// 1) Создать класс Ship с методами, которые вынесены в utils
-
 export class Player {
   id: number;
   password: string;
